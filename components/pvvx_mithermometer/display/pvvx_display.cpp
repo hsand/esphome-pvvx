@@ -7,6 +7,9 @@ namespace pvvx_mithermometer {
 
 static const char *const TAG = "display.pvvx_mithermometer";
 
+static constexpr uint8_t CMD_SET_DISPLAY = 0x22;
+static constexpr uint8_t CMD_SYNC_TIME = 0x23;
+
 void PVVXDisplay::dump_config() {
   ESP_LOGCONFIG(TAG,
                 "PVVX MiThermometer display:\n"
@@ -90,21 +93,24 @@ void PVVXDisplay::update() {
 void PVVXDisplay::display() {
   if (!this->parent_->enabled) {
     ESP_LOGD(TAG, "[%s] BLE client not enabled.  Init connection.", this->parent_->address_str());
+    this->pending_display_update_ = true;
     this->parent_->set_enabled(true);
     return;
   }
   if (!this->connection_established_) {
     ESP_LOGW(TAG, "[%s] Not connected to BLE client.  State update can not be written.", this->parent_->address_str());
+    this->pending_display_update_ = true;
     return;
   }
   if (!this->char_handle_) {
     ESP_LOGW(TAG, "[%s] No ble handle to BLE client.  State update can not be written.", this->parent_->address_str());
+    this->pending_display_update_ = true;
     return;
   }
   ESP_LOGD(TAG, "[%s] Send to display: bignum %d, smallnum: %d, cfg: 0x%02x, validity period: %u.",
            this->parent_->address_str(), this->bignum_, this->smallnum_, this->cfg_, this->validity_period_);
   uint8_t blk[8] = {};
-  blk[0] = 0x22;
+  blk[0] = CMD_SET_DISPLAY;
   blk[1] = this->bignum_ & 0xff;
   blk[2] = (this->bignum_ >> 8) & 0xff;
   blk[3] = this->smallnum_ & 0xff;
@@ -113,9 +119,12 @@ void PVVXDisplay::display() {
   blk[6] = (this->validity_period_ >> 8) & 0xff;
   blk[7] = this->cfg_;
   this->send_to_setup_char_(blk, sizeof(blk));
+  this->pending_display_update_ = false;
 }
 
 void PVVXDisplay::setcfgbit_(uint8_t bit, bool value) {
+  if (bit >= 8)
+    return;
   uint8_t mask = 1 << bit;
   if (value) {
     this->cfg_ |= mask;
@@ -151,7 +160,9 @@ void PVVXDisplay::sync_time_and_display_() {
 #ifdef USE_TIME
   this->sync_time_();
 #endif
-  this->display();
+  if (this->pending_display_update_) {
+    this->display();
+  }
 }
 
 #ifdef USE_TIME
@@ -174,7 +185,7 @@ void PVVXDisplay::sync_time_() {
   time.recalc_timestamp_utc(true);  // calculate timestamp of local time
   uint8_t blk[5] = {};
   ESP_LOGD(TAG, "[%s] Sync time with timestamp %" PRIu64 ".", this->parent_->address_str(), time.timestamp);
-  blk[0] = 0x23;
+  blk[0] = CMD_SYNC_TIME;
   blk[1] = time.timestamp & 0xff;
   blk[2] = (time.timestamp >> 8) & 0xff;
   blk[3] = (time.timestamp >> 16) & 0xff;
