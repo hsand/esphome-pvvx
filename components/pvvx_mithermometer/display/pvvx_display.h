@@ -110,6 +110,7 @@ class PVVXDisplay : public ble_client::BLEClientNode, public PollingComponent {
   int16_t bignum_ = 0;
   int16_t smallnum_ = 0;
   uint8_t cfg_ = 0;
+  bool pending_display_update_ = false;
 
   void setcfgbit_(uint8_t bit, bool value);
   void send_to_setup_char_(uint8_t *blk, size_t size);
